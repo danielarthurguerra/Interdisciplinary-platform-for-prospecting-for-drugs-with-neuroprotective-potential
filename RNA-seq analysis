@@ -1,0 +1,85 @@
+# Pipeline utilizado para processamento, mapeamento e análise das reads obtidas através de RNA-Seq
+
+#Formatação das reads brutas - Trimmomatic
+java -jar trimmomatic-0.35.jar PE -phred33 input_forward.fq.gz 
+input_reverse.fq.gz output_forward_paired.fq.gz 
+output_forward_unpaired.fq.gz output_reverse_paired.fq.gz 
+output_reverse_unpaired.fq.gz ILLUMINACLIP:TruSeq3-PE.fa:2:30:10 
+LEADING:5 TRAILING:5 SLIDINGWINDOW:4:15 MINLEN:50
+
+#Gerando os arquivos indexes do genoma de referência - STAR
+STAR --runThreadN 8 --runMode genomeGenerate --genomeDir /ref_genome_path 
+--genomeFastaFiles /ref_genome.fa --sjdbGTFfile /ref_genome.gtf --
+sjdbOverhang 74
+
+#Mapeamento e contagem das reads - STAR
+for i in `ls /indexes_path/`;
+do STAR --runThreadN 8 --genomeDir /ref_genome_path --readFilesIn 
+/indexes_path/$i --readFilesCommand zcat --outSAMtype BAM 
+SortedByCoordinate --quantMode GeneCounts; 
+done
+
+# Pipeline utilizado para análise de contraste dos perfis transcricionais
+
+#Carregamento das bibliotecas necessárias:
+library(DESeq2)
+library(ggplot2)
+library(dplyr)
+library(pheatmap)
+library(apeglm)
+library(gplots)
+
+#Leitura das contagens:
+dados <- read.table("input_file", header=T, row.names=1)
+#Definição das replicatas:
+replicas <- rep(c("Control","Test"), c(3,3))
+
+#Criando colData:
+colData = data.frame (condition=as.factor (replicas))
+rownames(colData) <- colnames(dados)
+
+#Confirmando se dados e colData estão na mesma ordem:
+all(rownames(colData)==colnames(dados))
+
+#Análise de expressão diferencial
+
+#Criando objeto dds:
+ddsData <- DESeqDataSetFromMatrix(dados, colData, formula (~condition))
+ddsData
+dds <- DESeq(ddsData)
+
+#Obtendo o resultado da análise de expressão diferencial:
+res <- results(dds)
+res.lfs <- lfcShrink(dds = dds, res = res, coef = 2 , type = "apeglm")
+
+#Resumo dos resultados:
+summary(res.lfs)
+mcols(res.lfs, use.names = TRUE)
+#Resumo do GDE (Genes diferencialmente expressos):
+sum(res.lfs$padj < 0.05, na.rm = TRUE)
+sum(res.lfs$pvalue < 0.05, na.rm = TRUE)
+sum(res.lfs$log2FoldChange >= 0.5849625 & res$padj < 0.05, na.rm = TRUE)
+sum(res.lfs$log2FoldChange <= -0.5849625 & res$padj < 0.05, na.rm = TRUE)
+which(res.lfs$log2FoldChange >= 0.5849625 & res$padj < 0.05)
+which(res.lfs$log2FoldChange <= -0.5849625 & res$padj < 0.05)
+which(res.lfs$log2FoldChange >= 0.5849625 & res$padj < 0.05)
+which(res.lfs$log2FoldChange <= -0.5849625 & res$padj < 0.05)
+select <- which(res.lfs$padj < 0.05 & abs(res.lfs$log2FoldChange) >= log2(1.5))
+select
+length(select)
+
+#Transformação dos dados com Variance Stabilizing Transformation
+vsd <- varianceStabilizingTransformation(dds)
+assay(vsd)
+table = assay(vsd)[select,]
+
+#Produzindo as tabelas de genes diferencialmente expressos:
+resOrder <- res.lfs[order(res.lfs$padj),]
+res.tab <- data.frame(resOrder)
+res.padj <- res.tab[res.tab$padj<0.05, ]
+res.padj <- res.padj[!is.na(res.padj$padj),]
+write.csv(res.padj, "deseq2_diffexp_005.csv")
+de_up <- res.padj[res.padj$log2FoldChange >= 0.5849625, ]
+write.csv(de_up, "deseq2_diffexp_005_50percent_upFoldChange.csv")
+de_down <- res.padj[res.padj$log2FoldChange <= -0.5849625, ]
+write.csv(de_down, "deseq2_diffexp_005_50percent_downFoldChange.csv")
