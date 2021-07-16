@@ -1,0 +1,49 @@
+# Importar bibliotecas necessárias
+from rdkit import Chem 
+from rdkit import DataStructs 
+from rdkit.Chem.Fingerprints import FingerprintMols 
+import pandas as pd 
+
+# Ler os arquivos csv’s 
+df_1 = pd.read_csv('first.csv’) 
+df_2 = pd.read_csv('second.csv’) 
+df_3 = pd.concat([df_1, df_2]) 
+
+# Colocar a prova a lista de SMILES 
+df_smiles = df_3['smiles’] 
+c_smiles = [] 
+for ds in df_smiles: 
+	try: 
+	Chem.CanonSmiles(ds) 
+	c_smiles.append(ds) 
+	except: 
+	print('Invalid SMILES:', ds) 
+print() 
+
+# Gerar a lista de mols
+ms = [Chem.MolFromSmiles(x) for x in c_smiles] 
+
+# Gerar lista de impressões digitais 
+fps = [FingerprintMols.FingerprintMol(x) for x in ms] 
+# Gerando uma lista de dataframe 
+qu, ta, sim = [], [], [] 
+
+# Comparando todas as moléculas sem duplicatas
+For n in range (len(fps)-1): # -1 para que o último FP não seja usado
+s = DataStructs.BulkTanimotoSimilarity(fps[n], fps[n+1:]) # +1 comparar com o próximo ao último FP
+print(c_smiles[n], c_smiles[n+1:]) # qual modelo é comparado com qual grupo
+# Colete os SMILES e valores 
+for m in range(len(s)): 
+	qu.append(c_smiles[n]) 
+	ta.append(c_smiles[n+1:][m]) 
+	sim.append(s[m]) 
+print() 
+
+# Construir o quadro de dados e classificá-lo
+d = {'query':qu, 'target':ta, 'Similarity':sim} 
+df_final = pd.DataFrame(data=d) 
+df_final = df_final.sort_values('Similarity', ascending=False) 
+print(df_final) 
+
+# Salvando o arquivo csv de saída
+df_final.to_csv('third.csv', index=False, sep=',') 
